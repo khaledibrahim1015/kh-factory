@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kh-factory</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e3de;
+    --ok: #1f7a4d; --bad: #b3261e; --wait: #9a6700; --run: #1f5fbf; --chip: #efefea;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141413; --panel: #1d1d1b; --text: #ececea; --muted: #9b9b95; --line: #2e2e2b;
+      --ok: #4cc38a; --bad: #ff7b72; --wait: #e3b341; --run: #6ea8fe; --chip: #262624;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141413; --panel: #1d1d1b; --text: #ececea; --muted: #9b9b95; --line: #2e2e2b;
+    --ok: #4cc38a; --bad: #ff7b72; --wait: #e3b341; --run: #6ea8fe; --chip: #262624;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; }
+  header .root { color: var(--muted); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+  main { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; min-height: calc(100vh - 50px); }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  aside { border-right: 1px solid var(--line); padding: 12px 16px; overflow: auto; }
+  section { padding: 12px 16px; overflow: auto; min-width: 0; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 8px; }
+  .job { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; }
+  .job.sel { outline: 2px solid var(--run); }
+  .job .id { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .st { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--chip); }
+  .st.passed, .st.approved { color: var(--ok); } .st.failed, .st.rejected, .st.stalled { color: var(--bad); }
+  .st.awaiting-human { color: var(--wait); } .st.running, .st.queued { color: var(--run); }
+  .reason { color: var(--muted); font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.detail { overflow-wrap: anywhere; color: var(--muted); }
+  td.warn { color: var(--wait); font-weight: 600; }
+  .files a { display: inline-block; margin: 0 8px 6px 0; font-family: var(--mono); font-size: 12px; color: var(--run); cursor: pointer; }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 12px/1.4 var(--mono);
+        white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow: auto; margin: 0; }
+  .ev { border-bottom: 1px solid var(--line); padding: 4px 0; font: 12px/1.4 var(--mono); overflow-wrap: anywhere; }
+  .ev b { color: var(--run); font-weight: 600; }
+  .empty { color: var(--muted); }
+  button { font: inherit; background: var(--chip); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+</style>
+</head>
+<body>
+<header><h1>kh-factory</h1><span class="root" id="root"></span>
+  <span style="margin-left:auto"><button id="theme">theme</button></span></header>
+<main>
+  <aside><h2>Jobs</h2><div id="jobs" class="empty">loading…</div></aside>
+  <section id="detail"><p class="empty">Select a job.</p></section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ago = (t) => { if (!t) return "-"; const s = Math.round(Date.now()/1000 - t); return s < 120 ? s+"s" : s < 7200 ? Math.round(s/60)+"m" : Math.round(s/3600)+"h"; };
+let selected = null, lastEvent = 0;
+const k = (n) => n >= 1e6 ? (n / 1e6).toFixed(1).replace(".0", "") + "M" : Math.round(n / 1e3) + "k";
+const ctx = (t, w) => !t ? "" : !w ? k(t) : `${k(t)}/${k(w)} (${Math.round(100 * t / w)}%)`;
+
+try { const t = localStorage.getItem("khf-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+$("#theme").onclick = () => {
+  const cur = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = cur;
+  try { localStorage.setItem("khf-theme", cur); } catch (e) {}
+};
+
+async function loadJobs() {
+  const r = await fetch("/api/jobs").then((r) => r.json());
+  $("#root").textContent = r.root;
+  $("#jobs").innerHTML = r.jobs.length ? r.jobs.map((j) => `
+    <div class="job ${j.id === selected ? "sel" : ""}" data-id="${esc(j.id)}">
+      <div><span class="st ${esc(j.status)}">${esc(j.status)}</span> <b>${esc(j.task_id)}</b> ${esc(j.title)}</div>
+      <div class="id">${esc(j.id)} · ${ago(j.updated_at)} ago · $${(j.cost_usd || 0).toFixed(3)}</div>
+      ${j.reason ? `<div class="reason">${esc(j.reason.slice(0, 220))}</div>` : ""}
+    </div>`).join("") : `<p class="empty">No jobs yet. Run <code>factory next</code>.</p>`;
+  document.querySelectorAll(".job").forEach((el) => el.onclick = () => select(el.dataset.id));
+}
+
+async function select(id) {
+  const switched = selected !== id;
+  if (switched) { selected = id; lastEvent = 0; }
+  const d = await fetch(`/api/jobs/${encodeURIComponent(id)}`).then((r) => r.json());
+  if (!d.job) return;
+  const j = d.job;
+  const gatesBy = {};
+  d.gates.forEach((g) => (gatesBy[g.phase_id] ||= []).push(g));
+  const keepEvents = !switched && $("#events") ? $("#events").innerHTML : "";
+  const keepFile = !switched && $("#file") ? $("#file").outerHTML : `<pre id="file" class="empty">Click a file.</pre>`;
+  $("#detail").innerHTML = `
+    <div><span class="st ${esc(j.status)}">${esc(j.status)}</span> <b>${esc(j.task_id)}</b> ${esc(j.title)}</div>
+    <div class="reason">branch ${esc(j.branch)} · base ${esc(j.base_branch)}@${esc((j.base_sha || "").slice(0, 8))} · $${(j.cost_usd || 0).toFixed(3)}</div>
+    ${j.reason ? `<div class="reason">${esc(j.reason)}</div>` : ""}
+    <h2>Phases</h2>
+    <table><tr><th>Status</th><th>Phase</th><th>Owner</th><th>Time</th><th>Context</th><th>Detail / gates</th></tr>
+    ${d.phases.map((p) => `<tr><td><span class="st ${esc(p.status)}">${esc(p.status)}</span></td>
+      <td>${esc(p.name)} <span class="id">${esc(p.kind)}</span></td><td>${esc(p.owner)}</td>
+      <td>${Math.round((p.ended_at || Date.now()/1000) - p.started_at)}s</td>
+      <td class="${p.context_window && p.context_tokens / p.context_window >= 0.8 ? "warn" : ""}">${ctx(p.context_tokens, p.context_window)}</td>
+      <td class="detail">${esc((p.detail || "").slice(0, 300))}
+        ${(gatesBy[p.id] || []).map((g) => `<div>${g.passed ? "✓" : "✗"} ${esc(g.name)} ${esc((g.detail || "").slice(0, 200))}</div>`).join("")}</td></tr>`).join("")}
+    </table>
+    <h2>Files</h2><div class="files">${d.files.map((f) => `<a data-f="${esc(f)}">${esc(f)}</a>`).join("") || '<span class="empty">none</span>'}</div>
+    ${keepFile}
+    <h2>Events</h2><div id="events">${keepEvents}</div>`;
+  document.querySelectorAll(".files a").forEach((a) => a.onclick = async () => {
+    const t = await fetch(`/api/file?job=${encodeURIComponent(id)}&path=${encodeURIComponent(a.dataset.f)}`).then((r) => r.text());
+    $("#file").classList.remove("empty");
+    $("#file").textContent = t;
+  });
+  await loadEvents(id);
+}
+
+function summarize(e) {
+  let d = {}; try { d = JSON.parse(e.data); } catch (x) {}
+  if (e.type === "log") return Object.entries(d).filter(([k]) => k !== "type").map(([k, v]) => `${k}=${typeof v === "string" ? v.slice(0, 300) : JSON.stringify(v)}`).join(" ");
+  if (e.type === "message_end" || e.type === "assistant") {
+    const m = d.message || {}; const c = (m.content || []);
+    return `${m.role || ""}: ` + c.map((x) => x.text || (x.type === "tool_use" || x.type === "toolCall" ? `[tool ${x.name}]` : x.type)).join(" ").slice(0, 400);
+  }
+  if (e.type === "tool_execution_start" || e.type === "tool_execution_end") return `${d.toolName || ""} ${JSON.stringify(d.args || "").slice(0, 200)}`;
+  if (e.type === "result") return `result: ${String(d.result || "").slice(0, 300)}`;
+  if (d.text) return d.text.slice(0, 300);
+  return "";
+}
+
+async function loadEvents(id) {
+  const rows = await fetch(`/api/jobs/${encodeURIComponent(id)}/events?after=${lastEvent}`).then((r) => r.json());
+  if (!rows.length) return;
+  lastEvent = rows[rows.length - 1].id;
+  const box = $("#events");
+  box.insertAdjacentHTML("afterbegin", rows.reverse().map((e) =>
+    `<div class="ev">${new Date(e.ts * 1000).toLocaleTimeString()} <b>${esc(e.type)}</b> ${esc(summarize(e))}</div>`).join(""));
+}
+
+async function tick() {
+  try { await loadJobs(); if (selected) await select(selected); } catch (e) {}
+  setTimeout(tick, 1000);
+}
+tick();
+</script>
+</body>
+</html>

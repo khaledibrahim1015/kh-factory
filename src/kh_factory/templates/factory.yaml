@@ -1,0 +1,59 @@
+# factory.yaml — the factory's roster and project facts.
+# Pipeline steps name AGENTS, never models. Change a model or runner here; no code changes.
+# Check it with: factory config check
+
+defaults:
+  runner: pi                        # pi | claude
+  model: opencode-go/kimi-k3        # pi: provider/id (see `pi --list-models`); claude: opus | sonnet | haiku | full id
+  thinking: medium                  # off | minimal | low | medium | high | xhigh | max
+  timeout_min: 20                   # per agent call
+  tools: [read, grep, find, ls, bash]
+  # No agent may change these. Doc folders in project.context are protected too.
+  protected_files: [factory.yaml, .factory/, tasks/, .claude/]
+
+runners:                            # how each CLI is started
+  pi: { bin: pi, extra_args: [] }
+  claude: { bin: claude, extra_args: [] }
+
+agents:
+  planner:
+    runner: claude
+    model: opus
+    thinking: high
+    tools: [read, grep, find, ls]   # read-only: the plan comes back in the JSON answer
+    writes: []
+    prompts: { system: .factory/prompts/planner/system.md, user: .factory/prompts/planner/user.md }
+
+  builder:                          # uses defaults: pi + kimi-k3
+    tools: [read, grep, find, ls, bash, edit, write]
+    writes: ["**"]                  # whole repo, except protected paths
+    prompts: { system: .factory/prompts/builder/system.md, user: .factory/prompts/builder/user.md }
+
+  reviewer:
+    model: opencode-go/gpt-6-luna   # a different model family from the builder
+    thinking: high
+    writes: []                      # read-only
+    prompts: { system: .factory/prompts/reviewer/system.md, user: .factory/prompts/reviewer/user.md }
+
+pipeline:
+  flow: sdlc                        # plan -> build -> test<->fix -> review<->revise -> commit
+  plan: planner
+  build: builder
+  fix: builder
+  review: reviewer
+  max_fix_loops: 3
+  max_review_loops: 2
+  max_envelope_retries: 2
+  doc_updates: propose              # propose (record only) | apply (docs step + separate docs commit) | off
+  docs: builder                     # agent for the docs step; it resumes its session, so it knows the change
+  docs_never_apply: [docs/decisions/]   # ADRs record decisions: always proposal only
+
+project:                            # facts for the context pack
+  stack: "{{stack}}"
+  commands:                         # run by code, not by an agent. `test` is required.
+{{commands}}
+  rules: []                         # short rules every agent sees
+  context: []                       # doc folders (protected), e.g. [docs/specs, docs/decisions]
+  context_budget_tokens: 40000
+  command_timeout_min: 10
+  max_diff_lines: 2000              # the reviewer sees at most this many diff lines; the full diff is a file
