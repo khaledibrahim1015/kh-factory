@@ -58,7 +58,7 @@ Needs: `git`, `uv`, and at least one agent CLI:
 ```bash
 cd ~/Desktop/setup/kh-factory
 uv sync
-uv run pytest -q                 # expect: 46 passed
+uv run pytest -q                 # expect: 57 passed
 uv tool install -e .             # `factory` on your PATH (editable: code changes apply at once)
 factory --help
 factory install-skill            # optional: /factory in Claude Code (symlink, all repos)
@@ -186,6 +186,32 @@ or higher level.
 
 **Jobs start from the last commit.** Commit a task (or a task edit) before you run it.
 
+### 5.1 Task lint (`factory lint`)
+
+`factory lint [ID…] [--strict]` checks that a task is clear **and** that the agents will get a good
+context pack for it. `factory run` and `factory next` run it first and refuse a task with errors
+(`--no-lint` skips it). The `/factory` skill runs it after writing each task.
+
+| Code | Level | Check |
+|---|---|---|
+| `NO_ACCEPTANCE` | error | `## Acceptance` missing, empty, or still the template text |
+| `UNKNOWN_DEPENDENCY` · `DEPENDENCY_CYCLE` | error | `depends_on` names no task, or loops |
+| `SPEC_REF_NOT_FOUND` | error | a `spec:` ref has no file or heading |
+| `CONTEXT_TOO_LARGE` | error | the planner's pack (rules, facts, learnings, task, specs, repo map) is over the budget |
+| `NO_TEST_COMMAND` · `TEST_COMMAND_NOT_FOUND` | error (repo) | no `project.commands.test`, or its program is not on PATH |
+| `THIN_OBJECTIVE` | warn | Objective only repeats the title |
+| `ACCEPTANCE_NOT_LIST` · `NOT_CHECKABLE` | warn | not bullets / no item names an exact value, output or error |
+| `TOO_BIG` | warn | more than 6 acceptance items |
+| `VAGUE_WORDS` | warn | `fast, snappy, polished, better, improve, many, etc, TBD …` |
+| `FAKE_WITHOUT_OWNER` | warn | proven with a fake/stub/mock, and Notes name no task that builds the real one |
+| `NO_TESTS` | warn | `## Tests` empty |
+| `NO_SPEC_REFS` | warn | the repo has doc folders (`project.context`) but the task names no spec section |
+| `CONTEXT_NEAR_BUDGET` | warn | the planner's pack uses over 60% of the budget |
+| `ENV_MISSING` | warn | an env var named in the task (`*_KEY`, `*_TOKEN` …) is not set (value never read) |
+| `NO_REPO_RULES` | warn (repo) | no `AGENTS.md` / `CLAUDE.md` |
+
+Judgment checks (two meanings, title vs body) stay with you or the skill, as in super-board.
+
 ## 6. Run work from the terminal
 
 ```bash
@@ -199,6 +225,9 @@ factory rework <job-id> "note"  # back to the builder with your note (or answer 
 factory reject <job-id>         # remove worktree + branch; trace kept
 factory resume <job-id>         # continue a failed or stalled job (reuses plan + builder session)
 factory try <agent> "prompt"    # smoke test one agent (no worktree, no gates)
+factory lint [ID…]              # task clarity + context checks (§5.1)
+factory followups <job-id> [--create]   # list a job's follow-ups / write them as task files
+factory init --update-prompts   # refresh .factory/prompts/ from this kh-factory version (keeps factory.yaml)
 factory ui                      # http://localhost:4600
 ```
 
@@ -270,6 +299,8 @@ you: /factory approve t-002-ab12cd
 |---|---|
 | `/factory <feature text>` | writes a task with checkable acceptance (asks 1–3 questions if the feature is vague), commits only that file, runs it, reports |
 | `/factory next` | `factory next` in the background, then reports |
+| `/factory lint [ID…]` | runs `factory lint`, offers to fix the task files |
+| `/factory followups <job>` | lists follow-ups; creates tasks only on your yes |
 | `/factory status` | short summary of tasks and jobs |
 | `/factory show <job>` | the report for that job |
 | `/factory rework <job> <note>` | passes your note verbatim |
@@ -306,6 +337,8 @@ plan.md                         the planner's plan
 diff-review_N.patch             the full diff the reviewer of round N could read
 questions.md | spec_conflict.md when the job stopped for you
 doc-updates.md                  doc proposals: [APPLIED] / [PROPOSED], plus dropped ones and why
+review.md                       the review ledger: every finding id, round, kind, severity, status, proof
+followups.md                    work found during review, outside this task
 test_1.txt ... retest.txt       verbatim test output per run
 error.txt                       traceback if the factory itself crashed
 steps/NN-<phase>/
@@ -347,8 +380,9 @@ every prompt, so prompt edits cannot break the contract.
 ```text
 PlanOutput    summary, plan (markdown), files_to_touch[], acceptance[], spec_refs[], questions[]
 BuildOutput   summary, changed_files[], commit_message, spec_conflict?, doc_updates[]
-ReviewOutput  verdict: PASS|CHANGES, summary, findings[{severity: blocking|minor, file, message}],
-              doc_drift[], doc_rejects[]
+ReviewOutput  verdict: PASS|CHANGES, summary, prior[{id, status: fixed|not_fixed|no_longer_applies, proof}],
+              findings[{severity: blocker|should_fix|nit|deepening, kind: gap|bug|verification_miss|
+              scope_drift|over_engineering, file, message}], held[], followups[], doc_drift[], doc_rejects[]
 DocUpdate     path, section, reason, proposal (the exact new text)
 DocsOutput    summary, changed_files[], commit_message          (docs step)
 ```
@@ -364,10 +398,31 @@ up to `pipeline.max_envelope_retries` (default 2), then `ENVELOPE_INVALID`.
 | `envelope` | soft | the answer has valid JSON for the expected type |
 | `diff_matches_claims` | soft | every file changed in this step is in `changed_files`; every claimed file really changed |
 | `plan_non_empty` | soft | the plan text is not empty |
-| `verdict_consistent` | soft | `CHANGES` if and only if there is a blocking finding |
+| `prior_checked` | soft | rounds after the first: every open finding id has a status and a proof |
+| `verdict_consistent` | soft | `CHANGES` if and only if an open blocker exists (new, or a prior one `not_fixed`); over-engineering and deepening never block |
 | `spec_refs_resolve` | soft | docs step only: every task's `spec:` refs still resolve after the doc edit |
 
 Soft gate failures go back to the agent as a correction. Hard gate failures end the phase.
+
+### 9.0 Review memory and follow-ups
+
+**Review memory.** Every job has one review ledger (in the trace, shown as `review.md`).
+- **Code gives each new finding an id** (R1, R2 …); the ids never change, across rounds and reworks.
+- Every round after the first gets the open findings under "Previous review" and must check **each
+  one first**: `fixed`, `not_fixed` or `no_longer_applies`, with a `file:line` or command as proof
+  (gate `prior_checked`). A blocker that is `not_fixed` forces `CHANGES`, and the reviewer skips the
+  fresh pass. The reviewer still starts a new session each round and never sees the builder's reasoning.
+- The reviewer first writes 2–4 hypotheses from the acceptance and the plan, then checks them;
+  the ones that hold go in `held`, with proof.
+- The revise step gets the open findings by id: blockers as `MUST FIX`, `should_fix` as "fix if small".
+- `REVIEW_CHANGES` names the open ids, e.g. `(open: R2; see review.md)`.
+
+**Follow-ups.** When the review passes, code collects: the reviewer's explicit `followups`, plus
+findings still open that are `should_fix`, `deepening` or `over_engineering` (nits are not filed).
+They go to `followups.md`, and the reason gets `(+N follow-ups → followups.md)`.
+`factory followups <job> --create` writes one task file each, with `depends_on: [<task>]`.
+Follow-ups without acceptance fail lint until you write it. A `docs` follow-up for a file that the
+doc-updates step already covers is dropped (no duplicates).
 
 ### 9.1 Doc updates (specs, plans, README)
 
@@ -567,6 +622,7 @@ that is acceptable.
 | `INTERNAL_ERROR` | a factory bug or environment problem | read `<job folder>/error.txt` |
 | `STOPPED: planner has questions` | planner needs a decision | `factory rework <job> "<answers>"` |
 | `STOPPED: spec conflict` | build would break a spec | decide; `factory rework <job> "<decision>"` |
+| `task … fails lint` (on `run`/`next`) | the task has lint errors | fix the task file, commit, run again (`factory lint <ID>`) |
 
 ### Troubleshooting
 
@@ -596,11 +652,12 @@ To spend less: use `sonnet` or a Pi model for the planner; lower `max_fix_loops`
 ## 16. Testing the factory
 
 - **Unit and flow tests** (no model calls; fake runner, temporary git repos): `uv run pytest -q`
-  → 46 pass. They cover the happy path to approve, fix loops, write-boundary reverts, claim
+  → 57 pass. They cover the happy path to approve, fix loops, write-boundary reverts, claim
   re-prompts, bad JSON, planner questions and rework, review → revise → retest, bad spec refs,
   missing test command, runner errors, dependencies, reject, the importer, the CLI parsers, and
   `install-skill` / `init --with-skill`, context measurement, diff cutting, the trace migration, and doc updates (propose, drop, apply,
-  `--code-only`, ADRs never applied, reviewer rejects, spec refs kept).
+  `--code-only`, ADRs never applied, reviewer rejects, spec refs kept), reviewer memory (ids, prior
+  checks, not-fixed blockers, memory across rework), follow-ups, and every lint check.
 - **Manual end-to-end:** [TESTING.md](TESTING.md) (toy repo, Parts 0–9) or
   [NEW-PROJECT-GUIDE.md](NEW-PROJECT-GUIDE.md) (your own folder).
 

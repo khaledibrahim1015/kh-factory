@@ -47,9 +47,11 @@ def cmd_init(a) -> int:
     for agent in ("planner", "builder", "reviewer"):
         for kind in ("system", "user"):
             files[f".factory/prompts/{agent}/{kind}.md"] = _template(f"prompts/{agent}/{kind}.md")
+    if a.update_prompts:  # refresh only the agent prompts from this kh-factory version
+        files = {k: v for k, v in files.items() if k.startswith(".factory/prompts/")}
     for rel, text in files.items():
         p = root / rel
-        if p.exists() and not a.force:
+        if p.exists() and not (a.force or a.update_prompts):
             print(f"  keep    {rel} (exists; --force to overwrite)")
             continue
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -113,6 +115,52 @@ def cmd_import(a) -> int:
     return 0
 
 
+def cmd_lint(a) -> int:
+    from . import lint
+    root = _root()
+    cfg = config.load(root)
+    all_tasks = tasks.load_all(root)
+    chosen = [t for t in all_tasks if not a.tasks or t.id in a.tasks]
+    if a.tasks and (missing := set(a.tasks) - {t.id for t in chosen}):
+        print(f"error: unknown task(s): {', '.join(sorted(missing))}", file=sys.stderr)
+        return 2
+    repo = lint.lint_repo(cfg, root)
+    n_err = n_warn = 0
+    for i in repo:
+        print(f"  repo      {i.level:<5} {i.code:<22} {i.message}")
+    for t in chosen:
+        issues = lint.lint_task(cfg, root, t, all_tasks)
+        if not issues:
+            print(f"  {t.id:<9} ok")
+        for i in issues:
+            print(f"  {t.id:<9} {i.level:<5} {i.code:<22} {i.message}")
+        n_err += len(lint.errors(issues))
+        n_warn += len(issues) - len(lint.errors(issues))
+    n_err += len(lint.errors(repo))
+    n_warn += len(repo) - len(lint.errors(repo))
+    print(f"\n{len(chosen)} task(s): {n_err} error(s), {n_warn} warning(s)")
+    return 1 if n_err or (a.strict and n_warn) else 0
+
+
+def cmd_followups(a) -> int:
+    from . import followups
+    root = _root()
+    task_id, items = followups.load(root, a.job)
+    if not items:
+        print(f"job {a.job}: no follow-ups")
+        return 0
+    if not a.create:
+        for i, f in enumerate(items, 1):
+            acc = f"{len(f.acceptance)} acceptance" if f.acceptance else "NO acceptance yet"
+            print(f"  {i}. [{f.kind}] {f.title}  ({f.file or '-'}; {acc})")
+        print(f"\nCreate task files: factory followups {a.job} --create")
+        return 0
+    for p in followups.create(root, a.job):
+        print(f"created {p.relative_to(root)}")
+    print("Next: review them, `factory lint`, commit, then run.")
+    return 0
+
+
 def _ago(ts: float | None) -> str:
     if not ts:
         return "-"
@@ -150,7 +198,7 @@ def _report(job_id: str, status: str, reason: str) -> int:
 def cmd_run(a) -> int:
     root = _root()
     print(f"starting task {a.task} …")
-    job_id, status, reason = jobs.start(root, a.task, force=a.force)
+    job_id, status, reason = jobs.start(root, a.task, force=a.force, run_lint=not a.no_lint)
     return _report(job_id, status, reason)
 
 
@@ -161,7 +209,7 @@ def cmd_next(a) -> int:
         print("no runnable task (all done, running, waiting for you, or blocked by dependencies)")
         return 0
     print(f"next task: {t.id} — {t.title}")
-    job_id, status, reason = jobs.start(root, t.id)
+    job_id, status, reason = jobs.start(root, t.id, run_lint=not a.no_lint)
     return _report(job_id, status, reason)
 
 
@@ -211,9 +259,11 @@ def cmd_show(a) -> int:
     print(f"  branch {j['branch']}  worktree {j['worktree']}  base {j['base_branch']}@{(j['base_sha'] or '')[:8]}")
     print(f"  cost ${j['cost_usd'] or 0:.3f}  reason: {j['reason']}")
     print(f"  files: {root / '.factory' / 'jobs' / j['id']}")
-    report = root / ".factory" / "jobs" / j["id"] / "doc-updates.md"
-    if report.exists():
-        print(f"  doc updates: {report}")
+    for label, name in (("review ledger", "review.md"), ("follow-ups", "followups.md"),
+                        ("doc updates", "doc-updates.md")):
+        report = root / ".factory" / "jobs" / j["id"] / name
+        if report.exists():
+            print(f"  {label}: {report}")
     for p in trace.query("SELECT * FROM phases WHERE job_id = ? ORDER BY id", (j["id"],)):
         dur = f"{(p['ended_at'] or time.time()) - p['started_at']:.0f}s"
         ctx = _ctx(p.get("context_tokens"), p.get("context_window"))
@@ -293,6 +343,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("init", help="install the factory into the current git repo")
     p.add_argument("--force", action="store_true")
     p.add_argument("--with-skill", action="store_true", help="also copy the /factory skill into <repo>/.claude/skills")
+    p.add_argument("--update-prompts", action="store_true",
+                   help="overwrite only .factory/prompts/ with this version's prompts (keeps factory.yaml)")
     p.set_defaults(fn=cmd_init)
 
     p = sub.add_parser("config", help="config commands")
@@ -317,9 +369,22 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("run", help="run one task")
     p.add_argument("task")
     p.add_argument("--force", action="store_true", help="ignore dependency and duplicate checks")
+    p.add_argument("--no-lint", action="store_true", help="start even if the task fails lint")
     p.set_defaults(fn=cmd_run)
 
-    sub.add_parser("next", help="run the next runnable task").set_defaults(fn=cmd_next)
+    p = sub.add_parser("next", help="run the next runnable task")
+    p.add_argument("--no-lint", action="store_true", help="start even if the task fails lint")
+    p.set_defaults(fn=cmd_next)
+
+    p = sub.add_parser("lint", help="check tasks are clear and their context is complete")
+    p.add_argument("tasks", nargs="*", help="task ids (default: all)")
+    p.add_argument("--strict", action="store_true", help="warnings also fail")
+    p.set_defaults(fn=cmd_lint)
+
+    p = sub.add_parser("followups", help="list a job's follow-ups, or create task files from them")
+    p.add_argument("job")
+    p.add_argument("--create", action="store_true")
+    p.set_defaults(fn=cmd_followups)
 
     p = sub.add_parser("approve", help="merge a job's branch locally")
     p.add_argument("job")

@@ -10,7 +10,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from . import config, flows, runners, tasks, worktree
+from . import config, flows, lint, runners, tasks, worktree
 from .pipeline import Job, PhaseFailed, StopForHuman, heartbeat
 from .runners.base import Runner
 from .trace import Trace
@@ -46,11 +46,18 @@ def deps_done(trace: Trace, task: tasks.Task) -> list[str]:
     return [d for d in task.depends_on if trace.task_status(d) != "done"]
 
 
-def start(root: Path, task_id: str, *, force: bool = False,
+def lint_errors(cfg: config.Config, root: Path, task: tasks.Task) -> list[lint.Issue]:
+    return lint.errors(lint.lint_repo(cfg, root) + lint.lint_task(cfg, root, task, tasks.load_all(root)))
+
+
+def start(root: Path, task_id: str, *, force: bool = False, run_lint: bool = True,
           runner_map: dict[str, Runner] | None = None, check_models: bool = True) -> tuple[str, str, str]:
     cfg = _cfg(root, check_models)
     trace = Trace(root)
     task = tasks.find(root, task_id)
+    if run_lint and (errs := lint_errors(cfg, root, task)):
+        raise JobError(f"task {task.id} fails lint (fix it, or use --no-lint):\n  - "
+                       + "\n  - ".join(f"{e.code}: {e.message}" for e in errs))
     status = trace.task_status(task.id)
     if status in ("running", "awaiting-human", "done") and not force:
         raise JobError(f"task {task.id} is already {status}. Use --force to start another job.")

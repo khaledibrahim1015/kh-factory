@@ -25,6 +25,10 @@ class Task:
     depends_on: list[str] = field(default_factory=list)
     spec: list[str] = field(default_factory=list)
 
+    def notes_mention_owner(self) -> bool:
+        """Notes name another task id (the one that builds the real thing)."""
+        return bool(re.search(r"\b[A-Z][A-Z0-9]*-\d+\b", self.section("Notes")))
+
     def section(self, name: str) -> str:
         """Text under `## <name>`, or ''."""
         m = re.search(rf"^##\s+{re.escape(name)}\s*\n(.*?)(?=^##\s|\Z)", self.body, re.S | re.M | re.I)

@@ -6,7 +6,7 @@ import json
 import re
 from typing import Literal, TypeVar
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
 class PlanOutput(BaseModel):
@@ -40,16 +40,56 @@ class BuildOutput(BaseModel):
                                                      "Do not edit them; propose the new text here.")
 
 
+SEVERITY_ALIASES = {"blocking": "blocker", "minor": "should_fix"}
+
+
 class Finding(BaseModel):
-    severity: Literal["blocking", "minor"]
-    file: str = ""
+    severity: Literal["blocker", "should_fix", "nit", "deepening"] = Field(
+        description="blocker = must be fixed before merge; should_fix = worth fixing, does not block; "
+                    "nit = style only; deepening = correct code, but the design could be deeper (never blocks)")
+    kind: Literal["gap", "bug", "verification_miss", "scope_drift", "over_engineering"] = Field(
+        "bug", description="gap = an acceptance item is missing; bug = likely fails; verification_miss = may be "
+                           "right but no test proves it; scope_drift = changes what was not asked; "
+                           "over_engineering = builds more than needed (never blocks on its own)")
+    file: str = Field("", description="file:line where the problem is")
     message: str
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _old_names(cls, v):
+        return SEVERITY_ALIASES.get(v, v)
+
+    @property
+    def blocking(self) -> bool:
+        return self.severity == "blocker" and self.kind != "over_engineering"
+
+
+class PriorCheck(BaseModel):
+    id: str = Field(description="The id of a finding from the previous review, e.g. R2")
+    status: Literal["fixed", "not_fixed", "no_longer_applies"]
+    proof: str = Field(description="file:line or command output that shows the status. Required.")
+
+
+class FollowUp(BaseModel):
+    title: str
+    why: str
+    kind: Literal["refactor", "bug", "test", "docs", "feature"] = "refactor"
+    file: str = ""
+    acceptance: list[str] = Field(default_factory=list,
+                                  description="2-3 checkable outcomes, so the follow-up task can run as is")
 
 
 class ReviewOutput(BaseModel):
     verdict: Literal["PASS", "CHANGES"]
     summary: str
-    findings: list[Finding] = Field(default_factory=list)
+    prior: list[PriorCheck] = Field(default_factory=list,
+                                    description="One entry per finding id listed under 'Previous review'. "
+                                                "Check these FIRST.")
+    findings: list[Finding] = Field(default_factory=list, description="NEW findings only (code assigns ids)")
+    held: list[str] = Field(default_factory=list,
+                            description="Hypotheses you checked that hold, each with file:line proof")
+    followups: list[FollowUp] = Field(default_factory=list,
+                                      description="Work worth doing later that is outside this task")
     doc_drift: list[DocUpdate] = Field(default_factory=list,
                                        description="Doc sections in the pack that no longer match the diff. "
                                                    "Not a blocking finding.")

@@ -135,7 +135,7 @@ def learnings(root: Path) -> str:
 def build(cfg: Config, *, layers: dict[str, str]) -> str:
     """Join non-empty layers into context.md and enforce the token budget."""
     order = ["Repo rules", "Project facts", "Learnings", "Task", "Spec sections", "Plan",
-             "Previous step", "Diff", "Test result", "Repo map"]
+             "Previous review", "Previous step", "Diff", "Test result", "Repo map"]
     blocks = [f"## {name}\n\n{layers[name].strip()}" for name in order if layers.get(name, "").strip()]
     text = "# Context pack\n\n" + "\n\n".join(blocks) + "\n"
     tokens = estimate_tokens(text)

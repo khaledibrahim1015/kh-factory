@@ -128,7 +128,7 @@ def test_envelope_fenced_and_bare():
     assert e.verdict == "PASS"
     e = envelope.parse('ok {"verdict": "CHANGES", "summary": "s", "findings": '
                        '[{"severity": "blocking", "message": "m"}]} end', envelope.ReviewOutput)
-    assert e.findings[0].severity == "blocking"
+    assert e.findings[0].severity == "blocker" and e.findings[0].blocking  # old name still accepted
 
 
 def test_envelope_errors_are_actionable():
@@ -270,3 +270,19 @@ def test_old_trace_db_is_migrated(tmp_path):
     cols = {r["name"] for r in t.query("PRAGMA table_info(phases)")}
     assert {"context_tokens", "context_window"} <= cols
     assert "max_context_pct" in {r["name"] for r in t.query("PRAGMA table_info(jobs)")}
+
+
+def test_init_update_prompts_keeps_config(tmp_path, monkeypatch):
+    import subprocess
+    from kh_factory import cli
+    root = tmp_path / "r"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    monkeypatch.chdir(root)
+    assert cli.main(["init"]) == 0
+    (root / "factory.yaml").write_text((root / "factory.yaml").read_text() + "# my edit\n")
+    prompt = root / ".factory" / "prompts" / "reviewer" / "system.md"
+    prompt.write_text("old prompt")
+    assert cli.main(["init", "--update-prompts"]) == 0
+    assert "Previous review" in prompt.read_text()
+    assert (root / "factory.yaml").read_text().endswith("# my edit\n")

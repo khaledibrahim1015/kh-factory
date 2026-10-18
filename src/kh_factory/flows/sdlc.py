@@ -13,7 +13,7 @@ A rework from the human resumes the builder's session with the human's note.
 
 from __future__ import annotations
 
-from .. import context, docupdates, gates, quality, tasks, worktree
+from .. import context, docupdates, followups, gates, quality, reviewmem, tasks, worktree
 from ..envelope import BuildOutput, DocsOutput, DocsReviewOutput, PlanOutput, ReviewOutput
 from ..pipeline import Job, PhaseFailed, StopForHuman, call_agent, phase
 
@@ -89,30 +89,42 @@ def run(job: Job, rework_note: str | None = None) -> str:
         raise PhaseFailed(test.code.split(":")[0] if test.code else "TESTS_FAILED",
                           f"tests still fail after {P.max_fix_loops} fix round(s): {test.summary()}")
 
-    # ---- review <-> revise ----
+    # ---- review <-> revise (the ledger keeps findings and their ids across rounds and reworks) ----
+    ledger = reviewmem.load(job)
+    first_round = max((max(f["round"], f.get("checked_round", 0)) for f in ledger), default=0) + 1
     review, revised = None, False
     for i in range(1, P.max_review_loops + 1):
+        round_no = first_round + i - 1
         with phase(job, f"review_{i}", "agent", P.review) as ph:
-            job.trace.clear_session(job.id, P.review)  # fresh eyes every round
+            job.trace.clear_session(job.id, P.review)  # fresh eyes every round; memory comes from the ledger
+
+            def review_gates(e, _s, ledger=ledger, round_no=round_no):
+                checks = [reviewmem.check_prior(e, ledger)] if reviewmem.open_items(ledger) else []
+                return checks + [reviewmem.verdict_consistent(e, reviewmem.merge(ledger, e, round_no))]
             review = call_agent(job, ph, P.review, output_type=ReviewOutput,
                                 context=pack(**{"Spec sections": specs, "Plan": plan.plan,
+                                                "Previous review": reviewmem.context(ledger),
                                                 "Diff": _review_diff(job, f"review_{i}"),
                                                 "Test result": test.summary()}),
-                                soft_gates=lambda e, _s: [_verdict_consistent(e)])
+                                soft_gates=review_gates)
+            ledger = reviewmem.merge(ledger, review, round_no)
+            reviewmem.save(job, ph, ledger)
             ph.succeed(f"{review.verdict}: {review.summary}")
         if review.verdict == "PASS" or i == P.max_review_loops:
             break
         with phase(job, f"revise_{i}", "agent", P.build) as ph:
-            findings = "\n".join(f"- [{f.severity}] {f.file}: {f.message}" for f in review.findings)
             build = call_agent(job, ph, P.build, output_type=BuildOutput, resume=True,
                                context=pack(**{"Plan": plan.plan,
-                                               "Previous step": f"Reviewer findings to close:\n\n{findings}"}),
+                                               "Previous step": "Reviewer findings to close (keep the ids in your "
+                                                                "summary):\n\n" + reviewmem.for_builder(ledger)}),
                                soft_gates=claims)
             _stop_on_conflict(job, build)
             ph.succeed(build.summary)
             revised = True
     if review is None or review.verdict != "PASS":
-        raise PhaseFailed("REVIEW_CHANGES", f"review still asks for changes after {P.max_review_loops} round(s)")
+        open_ids = ", ".join(f["id"] for f in reviewmem.open_items(ledger) if reviewmem.is_blocking(f))
+        raise PhaseFailed("REVIEW_CHANGES", f"review still asks for changes after {P.max_review_loops} round(s)"
+                                            f" (open: {open_ids}; see {reviewmem.REPORT})")
 
     if revised:  # a revision changed code after the last green run
         test = _test(job, "retest")
@@ -128,7 +140,20 @@ def run(job: Job, rework_note: str | None = None) -> str:
         job.trace.update_job(job.id, code_sha=sha)
         ph.succeed(f"{sha[:8]} on {job.branch}")
     docs_note = _doc_updates(job, pack) if P.doc_updates != "off" else ""
-    return f"ready: {sha[:8]} on {job.branch}{docs_note} — factory approve {job.id}"
+    follow_note = _followups(job, review, ledger)
+    return f"ready: {sha[:8]} on {job.branch}{docs_note}{follow_note} — factory approve {job.id}"
+
+
+def _followups(job: Job, review: ReviewOutput, ledger: list[dict]) -> str:
+    docs = job.trace.last_envelope(job.id, "DocUpdates") or {}
+    doc_paths = {u["path"].removeprefix("./") for u in docs.get("updates", [])}
+    items = followups.gather(review, ledger, doc_paths)
+    if not items:
+        return ""
+    with phase(job, "followups", "code", "factory") as ph:
+        followups.record(job, ph, items)
+        ph.succeed(f"{len(items)} follow-up(s)")
+    return f" (+{len(items)} follow-ups → {followups.REPORT})"
 
 
 def _doc_updates(job: Job, pack) -> str:
@@ -202,7 +227,7 @@ def _apply_docs(job: Job, pack, updates) -> str | None:
         ph.succeed(f"{review.verdict}: {review.summary}")
     if review.verdict != "PASS":
         with phase(job, "docs_revise", "agent", P.docs) as ph:
-            findings = "\n".join(f"- [{f.severity}] {f.file}: {f.message}" for f in review.findings)
+            findings = "\n".join(f"- [{f.severity}, {f.kind}] {f.file}: {f.message}" for f in review.findings)
             out = call_agent(job, ph, P.docs, output_type=DocsOutput, resume=True,
                              context=pack(**{"Previous step": f"Docs reviewer findings to close:\n\n{findings}\n\n"
                                                               f"Change ONLY these files: {', '.join(files)}."}),
@@ -279,7 +304,7 @@ def _plan_non_empty(p: PlanOutput) -> gates.GateResult:
 
 
 def _verdict_consistent(r: ReviewOutput) -> gates.GateResult:
-    blocking = [f for f in r.findings if f.severity == "blocking"]
+    blocking = [f for f in r.findings if f.blocking]
     ok = (r.verdict == "PASS") == (not blocking)
     return gates.GateResult("verdict_consistent", ok,
                             "" if ok else "verdict must be CHANGES if and only if there is a blocking finding")

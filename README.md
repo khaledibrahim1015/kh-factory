@@ -12,7 +12,7 @@ you:           factory approve <job> | factory rework <job> "note" | factory rej
 ```
 
 Design and decisions: [docs/PLAN-v1.md](docs/PLAN-v1.md), [docs/DECISIONS-QA.md](docs/DECISIONS-QA.md).
-**Everything in one place: [docs/HANDBOOK.md](docs/HANDBOOK.md).** Step-by-step tests: [docs/TESTING.md](docs/TESTING.md). New empty project: [docs/NEW-PROJECT-GUIDE.md](docs/NEW-PROJECT-GUIDE.md).
+**Everything in one place: [docs/HANDBOOK.md](docs/HANDBOOK.md).** Step-by-step tests: [docs/TESTING.md](docs/TESTING.md). New empty project: [docs/NEW-PROJECT-GUIDE.md](docs/NEW-PROJECT-GUIDE.md). Gap analysis vs super-board: [docs/GAP-SUPER-BOARD.md](docs/GAP-SUPER-BOARD.md).
 
 ## Install
 
@@ -95,6 +95,9 @@ jobs, reads `plan.md`, the review and the diff, and reports. Structure adapted f
 | `factory rework <job> "<note>"` | Send back to the builder with a note (or answer the planner's questions) |
 | `factory approve <job> [--code-only]` / `factory reject <job>` | Merge locally (optionally without the docs commit) / drop worktree and branch |
 | `factory try <agent> "<prompt>"` | Smoke test one agent |
+| `factory lint [ID…] [--strict]` | Task clarity and context checks; `run`/`next` refuse tasks with errors |
+| `factory followups <job> [--create]` | List a job's follow-ups, or write them as task files |
+| `factory init --update-prompts` | Refresh `.factory/prompts/` from this version (keeps `factory.yaml`) |
 | `factory ui [--port 4600]` | Read-only web UI over the trace |
 | `factory install-skill [--project] [--copy] [--force]` | Install the `/factory` Claude Code skill (user: symlink; project: copy) |
 

@@ -12,8 +12,8 @@ from kh_factory.trace import Trace
 from conftest import PASS, PLAN, build_bad, build_ok, envelope, git, script
 
 
-def start(repo, fake, task="T-001"):
-    return jobs.start(repo, task, runner_map={"fake": fake}, check_models=False)
+def start(repo, fake, task="T-001", run_lint=True):
+    return jobs.start(repo, task, runner_map={"fake": fake}, check_models=False, run_lint=run_lint)
 
 
 def phases(repo, job_id):
@@ -110,7 +110,9 @@ def test_review_changes_then_revise_then_retest(repo):
     def revise(req):
         (req.cwd / "calc.py").write_text('def add(a, b):\n    """Sum."""\n    return a + b\n')
         return envelope({"summary": "docstring", "changed_files": ["calc.py"], "commit_message": "Add add()"})
-    fake = script(planner=PLAN, builder=[build_ok, revise], reviewer=[changes, PASS])
+    pass_r1_fixed = envelope({"verdict": "PASS", "summary": "good",
+                              "prior": [{"id": "R1", "status": "fixed", "proof": "calc.py:2 has a docstring"}]})
+    fake = script(planner=PLAN, builder=[build_ok, revise], reviewer=[changes, pass_r1_fixed])
     job_id, status, reason = start(repo, fake)
     assert status == "awaiting-human", reason
     names = [n for n, _ in phases(repo, job_id)]
@@ -154,7 +156,9 @@ def test_bad_spec_ref_fails_before_any_model_call(repo):
     p.write_text(p.read_text().replace("docs/SPEC.md#1", "docs/SPEC.md#9"))
     git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "bad ref")
     fake = script(planner=PLAN, builder=build_ok, reviewer=PASS)
-    job_id, status, reason = start(repo, fake)
+    with pytest.raises(jobs.JobError, match="SPEC_REF_NOT_FOUND"):   # lint stops it first
+        start(repo, fake)
+    job_id, status, reason = start(repo, fake, run_lint=False)       # the flow checks it again
     assert status == "failed" and reason.startswith("SPEC_REF_NOT_FOUND")
     assert fake.calls == []
 
@@ -164,7 +168,9 @@ def test_no_test_command(repo):
     p.write_text(p.read_text().replace('commands: {test:', 'commands: {lint:'))
     git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "no test")
     fake = script(planner=PLAN, builder=build_ok, reviewer=PASS)
-    job_id, status, reason = start(repo, fake)
+    with pytest.raises(jobs.JobError, match="NO_TEST_COMMAND"):
+        start(repo, fake)
+    job_id, status, reason = start(repo, fake, run_lint=False)
     assert status == "failed" and reason.startswith("NO_TEST_COMMAND")
 
 
@@ -181,7 +187,7 @@ def test_dependencies_and_next(repo):
         "---\nid: T-002\ntitle: Next\ndepends_on: [T-001]\nspec: []\n---\n\n## Objective\n\nx\n")
     assert jobs.next_task(repo).id == "T-001"
     with pytest.raises(jobs.JobError, match="depends on unfinished"):
-        jobs.start(repo, "T-002", runner_map={}, check_models=False)
+        jobs.start(repo, "T-002", runner_map={}, check_models=False, run_lint=False)
 
 
 def test_reject_removes_worktree(repo):

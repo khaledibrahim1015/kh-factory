@@ -327,3 +327,6 @@ Changes from the plan, made during the build:
 - Added: doc updates inside `sdlc` (`doc_updates` / `doc_drift` / `doc_rejects`, `doc-updates.md`,
   `pipeline.doc_updates: propose|apply|off`, docs step limited to the proposed files, separate docs
   commit, `approve --code-only`, ADRs never applied). Tests: 46 pass.
+- Added from super-board: review memory (code-assigned ids, prior checks with proof), follow-ups
+  (`followups.md`, `factory followups --create`), `factory lint` (clarity + context checks, gate on
+  run/next), `factory init --update-prompts`. Tests: 57 pass.

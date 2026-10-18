@@ -1,6 +1,6 @@
 ---
 name: factory
-description: Drive kh-factory from Claude Code. Use when the user types /factory <feature>, /factory next, /factory status, /factory show|approve|reject|resume <job-id>, /factory rework <job-id> <note>, /factory import <file>, /factory ui, or asks in words to run, check, approve or rework a factory job. The `factory` CLI runs the plan → build → test → review loop; this session writes tasks, starts jobs, and reports.
+description: Drive kh-factory from Claude Code. Use when the user types /factory <feature>, /factory next, /factory status, /factory show|approve|reject|resume <job-id>, /factory rework <job-id> <note>, /factory lint [ids], /factory followups <job-id>, /factory import <file>, /factory ui, or asks in words to run, check, approve or rework a factory job. The `factory` CLI runs the plan → build → test → review loop; this session writes tasks, starts jobs, and reports.
 ---
 
 # Factory
@@ -52,10 +52,20 @@ Check once: `factory --help` works and `factory.yaml` exists.
      (`path#heading`). A ref that does not exist fails the job with `SPEC_REF_NOT_FOUND`.
    If the feature is too vague to write checkable acceptance, ask the user 1–3 short questions
    first. Do not invent requirements.
-3. **Show the task** to the user in a short block (title + acceptance bullets) and continue
-   unless they stop you.
-4. **Commit it:** `git add <task-path> && git commit -m "task <ID>: <title>" -- <task-path>`.
-5. **Run it:** `factory run <ID>` in the background. Then **Report**.
+3. **Lint it:** `factory lint <ID>`. Fix every `error` in the task file. Fix `warn` items too when
+   you can (vague words → exact behavior; `NO_SPEC_REFS` → add the spec sections that apply;
+   `NO_TESTS` → say where the tests go). Ask the user only for facts you cannot find in the repo.
+   Re-run until there are no errors.
+4. **Show the task** to the user in a short block (title + acceptance bullets + lint result) and
+   continue unless they stop you.
+5. **Commit it:** `git add <task-path> && git commit -m "task <ID>: <title>" -- <task-path>`.
+6. **Run it:** `factory run <ID>` in the background. Then **Report**.
+
+## /factory lint [ID…]
+
+Run `factory lint` (all tasks, or the ids given). Summarize errors first, then warnings, per task.
+Offer to fix them in the task files; commit only the task files you changed, after the user agrees.
+`factory run` refuses a task with lint errors; never pass `--no-lint` unless the user asks.
 
 ## /factory next
 
@@ -119,8 +129,16 @@ Phases: plan ✓ · build ✓ · test ✓ (fix ×1) · review PASS (round 2) · 
 Changed: <files from diff --stat>
 Review: <one line from the reviewer summary; list any minor findings>
 Docs: <only if the reason has "+N doc updates": M applied (commit <sha>), K proposed → doc-updates.md>
+Follow-ups: <only if the reason has "+N follow-ups": one line each from followups.md>
 Next: factory approve <job-id>   |   rework with a note   |   reject
 ```
+
+Review ledger: `<job folder>/review.md` lists every finding with its id (R1, R2 …), round and
+status (open, fixed, not_fixed, no_longer_applies). On `REVIEW_CHANGES`, quote the open ids from it.
+
+Follow-ups: when the reason contains `+N follow-ups`, list them from `<job folder>/followups.md`
+and ask whether to create tasks: `factory followups <job-id> --create`. Never create them without a yes.
+After creating, run `factory lint` on the new tasks (follow-ups without acceptance fail lint).
 
 Doc updates: when the reason contains `+N doc updates`, read `<job folder>/doc-updates.md` and list
 each one in one line (`[APPLIED|PROPOSED] path — section: reason`). If a docs commit exists, offer
@@ -136,6 +154,8 @@ By status:
 
 | Code | Next step to suggest |
 |---|---|
+| `REVIEW_CHANGES` (with ids) | quote the open R-ids from review.md; rework with a note per id, or reject |
+| lint errors (from `factory run`) | fix the task file (see /factory lint), commit it, run again |
 | `TESTS_FAILED` | look at `<job folder>/test_*.txt`; rework with a hint, or improve the task's acceptance |
 | `REVIEW_CHANGES` | quote the blocking findings; rework with a note, or reject |
 | `RUNNER_ERROR` | `factory try <agent> "hi"` to see the raw CLI error (login, model, timeout) |

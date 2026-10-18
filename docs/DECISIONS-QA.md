@@ -179,6 +179,18 @@ Facts checked on this machine:
 - A failed docs step never loses the code commit.
 - New flows (`docs`, `design`, `quick`, …) stay for later.
 
+**Q24. From the super-board gaps, what do we take?**
+- **Answer:** our flow is more reliable (code runs it), so we take three ideas: reviewer memory,
+  follow-up findings, and task lint that makes sure every task has a good context.
+- Reviewer memory: code-assigned stable ids, prior findings checked first with proof, a not-fixed
+  blocker forces CHANGES, finding kinds, over-engineering and deepening never block, memory in the
+  trace (survives rework). We keep: new reviewer session each round, no builder reasoning.
+- Follow-ups: explicit + leftover should-fix/deepening/over-engineering → `followups.md` →
+  `factory followups --create` on request.
+- Lint: clarity checks plus context checks (spec refs when docs exist, budget, repo rules, test
+  command). `run`/`next` refuse tasks with errors.
+- Not taken now: merge gate, secret guards, size cap, decision trailer (G1, G5–G8 in GAP-SUPER-BOARD.md).
+
 ---
 
 ## Decision summary
@@ -190,6 +202,7 @@ Facts checked on this machine:
 - SQLite trace + small web UI. First proof on a toy repo.
 - Context pack built by code per step (`context.md`), with a token budget; agents pull more with tools.
 - `/factory` skill in Claude Code as the front door; the CLI runs the loop.
+- Reviewer memory (ids + prior checks), follow-ups, and task lint (clarity + context) from super-board.
 - Doc updates inside `sdlc`: propose by default, apply as a separate commit on request, ADRs never applied.
 - Context use measured per agent call; reviewer diffs cut at `max_diff_lines` (both from sssf).
 - Skill: user-level symlink by default; project copy with `--project` / `init --with-skill`; `.claude/` protected.
