@@ -12,7 +12,7 @@ you:           factory approve <job> | factory rework <job> "note" | factory rej
 ```
 
 Design and decisions: [docs/PLAN-v1.md](docs/PLAN-v1.md), [docs/DECISIONS-QA.md](docs/DECISIONS-QA.md).
-**Everything in one place: [docs/HANDBOOK.md](docs/HANDBOOK.md).** Step-by-step tests: [docs/TESTING.md](docs/TESTING.md). New empty project: [docs/NEW-PROJECT-GUIDE.md](docs/NEW-PROJECT-GUIDE.md). Gap analysis vs super-board: [docs/GAP-SUPER-BOARD.md](docs/GAP-SUPER-BOARD.md).
+**Everything in one place: [docs/HANDBOOK.md](docs/HANDBOOK.md).** Step-by-step tests: [docs/TESTING.md](docs/TESTING.md). New empty project: [docs/NEW-PROJECT-GUIDE.md](docs/NEW-PROJECT-GUIDE.md).
 
 ## Install
 

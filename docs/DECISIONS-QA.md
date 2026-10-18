@@ -189,7 +189,7 @@ Facts checked on this machine:
   `factory followups --create` on request.
 - Lint: clarity checks plus context checks (spec refs when docs exist, budget, repo rules, test
   command). `run`/`next` refuse tasks with errors.
-- Not taken now: merge gate, secret guards, size cap, decision trailer (G1, G5–G8 in GAP-SUPER-BOARD.md).
+- Not taken now: merge gate, secret guards, size cap, decision trailer.
 
 **Q25. Why do we ignore AGENTS.md? Do we not need it?**
 - We do not ignore it: it is the first layer of every context pack. But three problems were found:

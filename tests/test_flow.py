@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -188,6 +189,20 @@ def test_dependencies_and_next(repo):
     assert jobs.next_task(repo).id == "T-001"
     with pytest.raises(jobs.JobError, match="depends on unfinished"):
         jobs.start(repo, "T-002", runner_map={}, check_models=False, run_lint=False)
+
+
+def test_run_refuses_a_stalled_task(repo):
+    fake = script(planner=PLAN, builder=build_ok, reviewer=PASS)
+    job_id, status, _ = start(repo, fake)
+    assert status == "awaiting-human"
+    t = Trace(repo)
+    t.update_job(job_id, status="running")                      # simulate a process that died
+    t.db.execute("UPDATE jobs SET heartbeat_at = ? WHERE id = ?", (time.time() - 1000, job_id,))
+    assert t.task_status("T-001") == "stalled"
+    with pytest.raises(jobs.JobError, match="already stalled"):
+        start(repo, fake)
+    # no duplicate job or worktree was created for the stalled task
+    assert len(t.query("SELECT id FROM jobs WHERE task_id = 'T-001'")) == 1
 
 
 def test_reject_removes_worktree(repo):

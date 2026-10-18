@@ -59,7 +59,7 @@ def start(root: Path, task_id: str, *, force: bool = False, run_lint: bool = Tru
         raise JobError(f"task {task.id} fails lint (fix it, or use --no-lint):\n  - "
                        + "\n  - ".join(f"{e.code}: {e.message}" for e in errs))
     status = trace.task_status(task.id)
-    if status in ("running", "awaiting-human", "done") and not force:
+    if status in ("running", "awaiting-human", "stalled", "done") and not force:
         raise JobError(f"task {task.id} is already {status}. Use --force to start another job.")
     missing = deps_done(trace, task)
     if missing and not force:
