@@ -9,7 +9,7 @@ defaults:
   timeout_min: 20                   # per agent call
   tools: [read, grep, find, ls, bash]
   # No agent may change these. Doc folders in project.context are protected too.
-  protected_files: [factory.yaml, .factory/, tasks/, .claude/]
+  protected_files: [factory.yaml, .factory/, tasks/, .claude/, AGENTS.md, CLAUDE.md]
 
 runners:                            # how each CLI is started
   pi: { bin: pi, extra_args: [] }
@@ -46,7 +46,7 @@ pipeline:
   max_envelope_retries: 2
   doc_updates: propose              # propose (record only) | apply (docs step + separate docs commit) | off
   docs: builder                     # agent for the docs step; it resumes its session, so it knows the change
-  docs_never_apply: [docs/decisions/]   # ADRs record decisions: always proposal only
+  docs_never_apply: [docs/decisions/, AGENTS.md, CLAUDE.md]   # decisions and repo rules: proposal only
 
 project:                            # facts for the context pack
   stack: "{{stack}}"

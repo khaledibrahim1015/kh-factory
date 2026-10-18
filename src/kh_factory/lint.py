@@ -28,6 +28,7 @@ VAGUE_RE = re.compile(r"(?<![\w-])(" + "|".join(re.escape(w) for w in VAGUE) + r
 FAKE_RE = re.compile(r"\b(fake|stub|mock|in-memory|no database|no network|hard-?coded)\b", re.I)
 ENV_RE = re.compile(r"\b([A-Z][A-Z0-9]*_(?:KEY|TOKEN|SECRET|PASSWORD|URL|DSN|ID))\b")
 MAX_ACCEPTANCE = 6
+RULES_PLACEHOLDER = "<!-- kh-factory: fill in -->"
 
 
 @dataclass
@@ -109,8 +110,13 @@ def lint_task(cfg: Config, root: Path, task: Task, all_tasks: list[Task]) -> lis
 def lint_repo(cfg: Config, root: Path) -> list[Issue]:
     """Checks that apply to every task: repo rules and the test command."""
     out = []
-    if not context.repo_rules(root):
-        out.append(Issue("warn", "NO_REPO_RULES", "no AGENTS.md or CLAUDE.md: agents get no repo conventions"))
+    rules = context.repo_rules(root)
+    if not rules:
+        out.append(Issue("warn", "NO_REPO_RULES", "no AGENTS.md or CLAUDE.md: agents get no repo conventions "
+                                                  "(`factory init` writes a starter AGENTS.md)"))
+    elif RULES_PLACEHOLDER in rules:
+        out.append(Issue("warn", "RULES_NOT_FILLED", "AGENTS.md still has the starter Conventions text; "
+                                                     "agents get no real conventions"))
     test = cfg.project.commands.get("test", "")
     if not test:
         out.append(Issue("error", "NO_TEST_COMMAND", "set project.commands.test in factory.yaml"))

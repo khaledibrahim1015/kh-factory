@@ -15,7 +15,7 @@ defaults:
   runner: fake
   model: fake-model
   tools: [read, bash, edit, write]
-  protected_files: [factory.yaml, .factory/, tasks/, .claude/]
+  protected_files: [factory.yaml, .factory/, tasks/, .claude/, AGENTS.md, CLAUDE.md]
 agents:
   planner:  {{writes: [], prompts: {{system: .factory/prompts/planner/system.md, user: .factory/prompts/planner/user.md}}}}
   builder:  {{writes: ["**"], prompts: {{system: .factory/prompts/builder/system.md, user: .factory/prompts/builder/user.md}}}}

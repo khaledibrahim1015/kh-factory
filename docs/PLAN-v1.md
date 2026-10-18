@@ -330,3 +330,5 @@ Changes from the plan, made during the build:
 - Added from super-board: review memory (code-assigned ids, prior checks with proof), follow-ups
   (`followups.md`, `factory followups --create`), `factory lint` (clarity + context checks, gate on
   run/next), `factory init --update-prompts`. Tests: 57 pass.
+- Repo rules: Pi `--no-context-files`, Claude `--safe-mode`; the pack resolves `@imports`; `AGENTS.md`/`CLAUDE.md`
+  protected and proposal-only; `factory init` writes a starter `AGENTS.md`; lint `RULES_NOT_FILLED`. Tests: 62 pass.

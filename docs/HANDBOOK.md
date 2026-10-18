@@ -58,7 +58,7 @@ Needs: `git`, `uv`, and at least one agent CLI:
 ```bash
 cd ~/Desktop/setup/kh-factory
 uv sync
-uv run pytest -q                 # expect: 57 passed
+uv run pytest -q                 # expect: 62 passed
 uv tool install -e .             # `factory` on your PATH (editable: code changes apply at once)
 factory --help
 factory install-skill            # optional: /factory in Claude Code (symlink, all repos)
@@ -90,6 +90,7 @@ factory init                    # or: factory init --with-skill (also copies the
 | `factory.yaml` | agents, models, pipeline, project facts | yes |
 | `.factory/prompts/{planner,builder,reviewer}/{system,user}.md` | agent prompts | yes |
 | `.factory/learnings.md` | rules every agent sees | yes |
+| `AGENTS.md` (only if neither `AGENTS.md` nor `CLAUDE.md` exists) | starter repo rules: stack, commands, a Conventions section to fill in | yes |
 | `tasks/` | task files | yes |
 | `.gitignore` entries `.factory/jobs/`, `.factory/trace.db*` | runtime state stays out of git | yes |
 | `.git/info/exclude` entries (caches like `__pycache__/`, `.venv/`) | caches never count as agent changes | (local only) |
@@ -209,6 +210,7 @@ context pack for it. `factory run` and `factory next` run it first and refuse a 
 | `CONTEXT_NEAR_BUDGET` | warn | the planner's pack uses over 60% of the budget |
 | `ENV_MISSING` | warn | an env var named in the task (`*_KEY`, `*_TOKEN` …) is not set (value never read) |
 | `NO_REPO_RULES` | warn (repo) | no `AGENTS.md` / `CLAUDE.md` |
+| `RULES_NOT_FILLED` | warn (repo) | `AGENTS.md` still has the starter Conventions text |
 
 Judgment checks (two meanings, title vs body) stay with you or the skill, as in super-board.
 
@@ -447,7 +449,8 @@ The flow handles this in three parts: **agents propose, code records and limits,
    For this step its `writes` are **exactly the proposed files**; anything else is reverted and the
    step fails. The `spec_refs_resolve` gate keeps task spec refs working. One docs review, at most
    one revise, then a separate docs commit. Paths in `docs_never_apply` (default `docs/decisions/`,
-   the ADRs) are never applied: an ADR records a decision, and changing it is your decision.
+   the ADRs) and the repo rules files (`AGENTS.md`, `CLAUDE.md`) are never applied: they record
+   decisions and rules, and changing them is your decision.
 4. **Decide.** `factory approve <job>` merges code + docs. `factory approve <job> --code-only` merges
    the code commit only. `[PROPOSED]` entries stay in `doc-updates.md` for you.
 
@@ -466,7 +469,7 @@ Before every agent step, code builds `context.md`. The agent can still read more
 
 | Layer | Source | planner | builder | fixer / reviser | reviewer |
 |---|---|---|---|---|---|
-| Repo rules | `AGENTS.md`, `CLAUDE.md` (a `@AGENTS.md` pointer is skipped) | ✓ | ✓ | ✓ | ✓ |
+| Repo rules | `AGENTS.md`, `CLAUDE.md`, with `@file.md` imports resolved once (inside the repo only) | ✓ | ✓ | ✓ | ✓ |
 | Project facts | `project.stack`, `commands`, `rules`, protected paths | ✓ | ✓ | ✓ | ✓ |
 | Learnings | `.factory/learnings.md` (read from the main repo) | ✓ | ✓ | ✓ | ✓ |
 | Task | the task file | ✓ | ✓ | ✓ | ✓ |
@@ -481,6 +484,12 @@ Before every agent step, code builds `context.md`. The agent can still read more
 `project.max_diff_lines` (default 2,000) diff lines. When the diff is longer, the pack says
 `Diff cut at 2000 of N lines. Full diff: <path>` and the agent reads `diff-review_N.patch` in the
 job folder with its tools.
+
+**The pack is the only copy of the repo rules.** Both CLIs would load rule files on their own
+(verified): Pi reads `AGENTS.md`/`CLAUDE.md` (also from parent folders and globally), Claude Code reads
+`CLAUDE.md` and its imports. The runners turn that off — Pi with `--no-context-files`, Claude with
+`--safe-mode` — so every agent sees the same rules, nothing leaks in from outside the repo, and
+`context.md` is exactly what the agent saw.
 
 Budget: `project.context_budget_tokens` (default 40,000; about 4 characters per token). Over
 budget → `CONTEXT_TOO_LARGE` with the size of each layer. Nothing is cut silently.
@@ -498,7 +507,7 @@ defaults:                         # every agent inherits these
   thinking: medium                # off | minimal | low | medium | high | xhigh | max
   timeout_min: 20                 # per agent call; then RUNNER_ERROR: TIMEOUT
   tools: [read, grep, find, ls, bash]
-  protected_files: [factory.yaml, .factory/, tasks/, .claude/]   # + project.context folders
+  protected_files: [factory.yaml, .factory/, tasks/, .claude/, AGENTS.md, CLAUDE.md]   # + project.context folders
 
 runners:
   pi:     { bin: pi, extra_args: [] }
@@ -533,7 +542,7 @@ pipeline:
   max_envelope_retries: 2
   doc_updates: propose            # propose | apply | off   (§9.1)
   docs: builder                   # agent for the docs step
-  docs_never_apply: [docs/decisions/]   # never applied, proposal only
+  docs_never_apply: [docs/decisions/, AGENTS.md, CLAUDE.md]   # never applied, proposal only
 
 project:
   stack: "Python (uv)"
@@ -575,6 +584,7 @@ pipeline:
 |---|---|---|
 | Command | `pi -p --mode json --session-dir … --session-id … --model … --thinking … --tools … --append-system-prompt …` | `claude -p --output-format stream-json --verbose --model … --permission-mode acceptEdits (--session-id \| --resume) … --append-system-prompt … --allowedTools …` |
 | Prompt | stdin | stdin (`--allowedTools` takes all following args, so it is last) |
+| Own rule files | off: `--no-context-files` | off: `--safe-mode` (also no user skills, plugins, hooks, output styles; auth, models, tools and permissions work normally) |
 | Final answer | last assistant `message_end` | the `result` event |
 | Error signal | `stopReason: "error"` + `errorMessage` | `is_error: true` (`subtype` can still say `success`) |
 | Resume | same `--session-id` | `--resume <id>` |
@@ -595,7 +605,7 @@ timeout only the agent CLI process is killed; a command it started with `bash` c
 
 | Risk | Protection |
 |---|---|
-| Agent edits its own grader (config, prompts, tasks, skill) | protected paths; changes reverted, phase fails |
+| Agent edits its own grader or rules (config, prompts, tasks, skill, `AGENTS.md`, `CLAUDE.md`) | protected paths; changes reverted, phase fails |
 | Agent edits specs/ADRs to fit its code | `project.context` folders protected; `spec_conflict` stops the job; doc changes only as proposals or, in `apply` mode, a separate docs commit limited to the proposed files; ADRs never applied |
 | Reviewer "fixes" instead of reviewing | `writes: []`; any change reverted |
 | Agent claims work it did not do | `diff_matches_claims`; tests run by code |
@@ -652,7 +662,7 @@ To spend less: use `sonnet` or a Pi model for the planner; lower `max_fix_loops`
 ## 16. Testing the factory
 
 - **Unit and flow tests** (no model calls; fake runner, temporary git repos): `uv run pytest -q`
-  → 57 pass. They cover the happy path to approve, fix loops, write-boundary reverts, claim
+  → 62 pass. They cover the happy path to approve, fix loops, write-boundary reverts, claim
   re-prompts, bad JSON, planner questions and rework, review → revise → retest, bad spec refs,
   missing test command, runner errors, dependencies, reject, the importer, the CLI parsers, and
   `install-skill` / `init --with-skill`, context measurement, diff cutting, the trace migration, and doc updates (propose, drop, apply,

@@ -191,6 +191,16 @@ Facts checked on this machine:
   command). `run`/`next` refuse tasks with errors.
 - Not taken now: merge gate, secret guards, size cap, decision trailer (G1, G5–G8 in GAP-SUPER-BOARD.md).
 
+**Q25. Why do we ignore AGENTS.md? Do we not need it?**
+- We do not ignore it: it is the first layer of every context pack. But three problems were found:
+  both CLIs also loaded rule files on their own (twice, and from outside the repo); `AGENTS.md` was
+  not protected; `factory init` did not create one.
+- **Answer (verified with a planted rule):** the pack is the only copy. Pi runs with `--no-context-files`,
+  Claude with `--safe-mode` (`--bare` would need an API key). The pack resolves `@file.md` imports itself.
+- `AGENTS.md` and `CLAUDE.md` are protected and never auto-applied by doc updates (proposal only).
+- `factory init` writes a starter `AGENTS.md` when no rules file exists; lint warns until its
+  Conventions section is filled in.
+
 ---
 
 ## Decision summary
@@ -202,6 +212,7 @@ Facts checked on this machine:
 - SQLite trace + small web UI. First proof on a toy repo.
 - Context pack built by code per step (`context.md`), with a token budget; agents pull more with tools.
 - `/factory` skill in Claude Code as the front door; the CLI runs the loop.
+- Repo rules: the context pack is the only copy (CLIs' own loading off); rules files protected; starter AGENTS.md.
 - Reviewer memory (ids + prior checks), follow-ups, and task lint (clarity + context) from super-board.
 - Doc updates inside `sdlc`: propose by default, apply as a separate commit on request, ADRs never applied.
 - Context use measured per agent call; reviewer diffs cut at `max_diff_lines` (both from sssf).

@@ -44,6 +44,10 @@ def cmd_init(a) -> int:
         "factory.yaml": _template("factory.yaml").replace("{{stack}}", stack).replace("{{commands}}", commands),
         ".factory/learnings.md": _template("learnings.md"),
     }
+    if not (root / "AGENTS.md").exists() and not (root / "CLAUDE.md").exists():
+        files["AGENTS.md"] = (_template("AGENTS.md").replace("{{stack}}", stack or "(not detected)")
+                              .replace("{{test}}", test or "(set project.commands.test)")
+                              .replace("{{lint}}", lint or "(none)"))
     for agent in ("planner", "builder", "reviewer"):
         for kind in ("system", "user"):
             files[f".factory/prompts/{agent}/{kind}.md"] = _template(f"prompts/{agent}/{kind}.md")
@@ -69,8 +73,8 @@ def cmd_init(a) -> int:
         code, msg = install_skill(root / SKILL_REL, link=False, force=a.force)
         print(f"  skill   {msg}")
     print(f"\nDetected stack: {stack or 'none'}; test command: {test or 'NOT SET (edit factory.yaml)'}")
-    print("Next: edit factory.yaml, run `factory config check`, add a task with `factory add \"...\"`, "
-          "commit, then `factory next`.")
+    print("Next: fill in AGENTS.md (Conventions), edit factory.yaml, run `factory config check`, "
+          "add a task with `factory add \"...\"`, commit, then `factory next`.")
     return 0
 
 

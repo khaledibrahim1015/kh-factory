@@ -23,7 +23,10 @@ class ClaudeRunner(Runner):
     def command(self, req: RunRequest) -> list[str]:
         a = req.agent
         tools = sorted({TOOLS.get(t, t) for t in a.tools})
-        cmd = [self.cfg.bin, "-p", "--output-format", "stream-json", "--verbose",
+        # --safe-mode: no CLAUDE.md auto-discovery (and no user skills, plugins, hooks, output styles);
+        # auth, models, built-in tools and permissions work normally (verified 2026-10-18).
+        # The context pack carries the repo rules. (--bare would also do it, but needs an API key.)
+        cmd = [self.cfg.bin, "-p", "--safe-mode", "--output-format", "stream-json", "--verbose",
                "--model", a.model, "--permission-mode", "acceptEdits"]
         cmd += ["--resume", req.session_id] if req.resume else ["--session-id", req.session_id]
         if req.system:

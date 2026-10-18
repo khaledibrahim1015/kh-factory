@@ -13,7 +13,9 @@ class PiRunner(Runner):
 
     def command(self, req: RunRequest) -> list[str]:
         a = req.agent
-        cmd = [self.cfg.bin, "-p", "--mode", "json",
+        # --no-context-files: Pi must not load AGENTS.md/CLAUDE.md (repo, parents, global) on its own;
+        # the context pack carries the repo rules, so context.md is exactly what the agent saw.
+        cmd = [self.cfg.bin, "-p", "--mode", "json", "--no-context-files",
                "--session-dir", str(req.session_dir), "--session-id", req.session_id,
                "--model", a.model, "--thinking", a.thinking,
                "--tools", ",".join(a.tools)]

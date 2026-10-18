@@ -233,3 +233,18 @@ def test_big_diff_is_cut_for_reviewer(repo):
     assert f"Diff cut at 5 of" in ctx and str(patch) in ctx
     assert "calc.py |" in ctx            # the stat block lists every changed file
     assert "# line 19" not in ctx        # cut part is not in the pack
+
+
+def test_builder_cannot_edit_repo_rules(repo):
+    (repo / "AGENTS.md").write_text("Be careful.\n")
+    git(repo, "add", "-A")
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rules")
+
+    def edits_rules(req):
+        (req.cwd / "AGENTS.md").write_text("Anything goes.\n")
+        return build_ok(req)
+    fake = script(planner=PLAN, builder=edits_rules, reviewer=PASS)
+    job_id, status, reason = start(repo, fake)
+    assert status == "failed" and reason.startswith("WRITES_BOUNDARY") and "AGENTS.md" in reason
+    planner_ctx = next((repo / ".factory" / "jobs" / job_id).glob("steps/*plan/context.md")).read_text()
+    assert "### AGENTS.md\n\nBe careful." in planner_ctx

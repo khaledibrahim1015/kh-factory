@@ -159,3 +159,16 @@ def test_docs_edit_must_keep_spec_refs(repo):
     job_id, status, reason, d = run_job(repo, fake)
     assert "1 applied" in reason, reason
     assert len(attempts) == 2 and "spec_refs_resolve" in attempts[1]
+
+
+def test_rules_file_update_is_proposal_only(repo):
+    (repo / "AGENTS.md").write_text("# Rules\n\n## Testing\n\nRun check.py.\n")
+    git(repo, "add", "-A")
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rules")
+    set_mode(repo, "apply")
+    rules_update = {"path": "AGENTS.md", "section": "Testing", "reason": "new command",
+                    "proposal": "## Testing\n\nRun check.py and pytest.\n"}
+    fake = script(planner=PLAN, builder=builder([rules_update], apply_spec), reviewer=PASS)
+    job_id, status, reason, d = run_job(repo, fake)
+    assert "1 proposed" in reason and "applied" not in reason, reason
+    assert "[PROPOSED] AGENTS.md" in (d / "doc-updates.md").read_text()

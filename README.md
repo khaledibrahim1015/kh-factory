@@ -109,7 +109,8 @@ jobs, reads `plan.md`, the review and the diff, and reports. Structure adapted f
 - **Runners**: `pi -p --mode json` and `claude -p --output-format stream-json`, prompt on stdin, session id
   pinned so fix/revise steps resume the builder's session. Both CLIs exit `0` on model errors, so the
   runners read `stopReason` / `is_error` instead of the exit code.
-- **Context pack**: before each agent step, code writes `context.md`: repo rules (`AGENTS.md`/`CLAUDE.md`),
+- **Context pack**: before each agent step, code writes `context.md`: repo rules (`AGENTS.md`/`CLAUDE.md`,
+  the only copy: Pi runs with `--no-context-files`, Claude with `--safe-mode`),
   project facts, learnings (`.factory/learnings.md`), the task, the named spec sections, plan, diff or test
   output. Budget: `project.context_budget_tokens`.
 - **Envelopes**: each agent ends with one JSON block (`PlanOutput`, `BuildOutput`, `ReviewOutput`). Bad JSON

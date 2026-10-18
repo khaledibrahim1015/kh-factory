@@ -54,7 +54,8 @@ class Pipeline(BaseModel):
     max_envelope_retries: int = 2
     doc_updates: Literal["propose", "apply", "off"] = "propose"
     docs: str = "builder"                      # agent for the docs step (apply mode)
-    docs_never_apply: list[str] = Field(default_factory=lambda: ["docs/decisions/"])  # ADRs: proposal only
+    # ADRs and the repo rules files: proposal only, never applied by an agent
+    docs_never_apply: list[str] = Field(default_factory=lambda: ["docs/decisions/", "AGENTS.md", "CLAUDE.md"])
 
 
 class Project(BaseModel):
@@ -88,7 +89,7 @@ class ConfigError(Exception):
     pass
 
 
-DEFAULT_PROTECTED = ["factory.yaml", ".factory/", "tasks/", ".claude/"]
+DEFAULT_PROTECTED = ["factory.yaml", ".factory/", "tasks/", ".claude/", "AGENTS.md", "CLAUDE.md"]
 DEFAULT_RUNNERS = {"pi": {"bin": "pi"}, "claude": {"bin": "claude"}, "fake": {"bin": "fake"}}
 
 

@@ -30,16 +30,36 @@ def estimate_tokens(text: str) -> int:
     return len(text) // 4
 
 
+IMPORT = re.compile(r"^@(\S+\.md)\s*$", re.M)
+
+
 def repo_rules(root: Path) -> str:
-    parts = []
-    seen = set()
+    """AGENTS.md and CLAUDE.md, with `@file.md` import lines resolved (one level, inside the repo).
+
+    The runners do not load these files themselves (Pi: --no-context-files, Claude: --safe-mode),
+    so this is the only copy the agents get. A file already included is not repeated.
+    """
+    parts, included = [], set()
+    root_r = root.resolve()
+
+    def expand(text: str) -> str:
+        def sub(m: re.Match) -> str:
+            target = (root / m.group(1)).resolve()
+            if not target.is_relative_to(root_r) or not target.is_file():
+                return m.group(0)
+            if target in included:
+                return f"(see {m.group(1)} above)"
+            included.add(target)
+            return target.read_text().strip()
+        return IMPORT.sub(sub, text)
+
     for name in ("AGENTS.md", "CLAUDE.md"):
-        p = root / name
-        if p.exists():
-            text = p.read_text().strip()
-            if text in seen or re.fullmatch(r"@AGENTS\.md", text):
-                continue
-            seen.add(text)
+        p = (root / name).resolve()
+        if not p.is_file() or p in included:
+            continue
+        included.add(p)
+        text = expand(p.read_text().strip()).strip()
+        if text and not re.fullmatch(r"\(see \S+ above\)", text):
             parts.append(f"### {name}\n\n{text}")
     return "\n\n".join(parts)
 

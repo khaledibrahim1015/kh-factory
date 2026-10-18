@@ -8,7 +8,7 @@ Use two terminal windows: **A** runs commands, **B** shows the UI.
 ```bash
 cd ~/Desktop/setup/kh-factory
 uv sync
-uv run pytest -q                 # expect: 57 passed
+uv run pytest -q                 # expect: 62 passed
 uv tool install -e .             # puts `factory` on your PATH
 factory --help                   # expect: list of commands
 ```

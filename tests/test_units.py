@@ -286,3 +286,49 @@ def test_init_update_prompts_keeps_config(tmp_path, monkeypatch):
     assert cli.main(["init", "--update-prompts"]) == 0
     assert "Previous review" in prompt.read_text()
     assert (root / "factory.yaml").read_text().endswith("# my edit\n")
+
+
+# ---- repo rules: code is the only source ----
+
+def test_runners_do_not_load_rule_files_themselves(repo, tmp_path):
+    cfg = config.load(repo)
+    agent = cfg.agents["builder"]
+    req = RunRequest(agent=agent, prompt="p", system="", cwd=repo, session_id="S", resume=False,
+                     session_dir=tmp_path, log_path=tmp_path / "l")
+    assert "--no-context-files" in PiRunner(config.RunnerCfg(bin="pi")).command(req)
+    assert "--safe-mode" in ClaudeRunner(config.RunnerCfg(bin="claude")).command(req)
+
+
+def test_repo_rules_resolve_imports_once(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "style.md").write_text("Use snake_case.")
+    (tmp_path / "AGENTS.md").write_text("Run tests first.\n@docs/style.md")
+    (tmp_path / "CLAUDE.md").write_text("@AGENTS.md\n@docs/style.md\n@../outside.md")
+    text = context.repo_rules(tmp_path)
+    assert text.count("Use snake_case.") == 1 and text.count("Run tests first.") == 1
+    assert "@../outside.md" in text          # never reads outside the repo
+    (tmp_path / "CLAUDE.md").write_text("@AGENTS.md")
+    assert context.repo_rules(tmp_path) == "### AGENTS.md\n\nRun tests first.\nUse snake_case."
+
+
+def test_init_writes_starter_agents_md_and_lint_flags_it(tmp_path, monkeypatch):
+    import subprocess
+    from kh_factory import cli, lint
+    root = tmp_path / "fresh2"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    (root / "pyproject.toml").write_text("[project]\nname='x'\n")
+    monkeypatch.chdir(root)
+    assert cli.main(["init"]) == 0
+    text = (root / "AGENTS.md").read_text()
+    assert "Stack: Python (uv)" in text and "`uv run pytest -q`" in text
+    cfg = config.load(root)
+    assert {"AGENTS.md", "CLAUDE.md"} <= set(cfg.protected)
+    assert "RULES_NOT_FILLED" in {i.code for i in lint.lint_repo(cfg, root)}
+    other = tmp_path / "has-claude"
+    other.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=other, check=True)
+    (other / "CLAUDE.md").write_text("My rules.")
+    monkeypatch.chdir(other)
+    assert cli.main(["init"]) == 0
+    assert not (other / "AGENTS.md").exists()   # an existing rules file is kept as the source
